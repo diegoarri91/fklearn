@@ -22,7 +22,8 @@ def validator_iteration(data: pd.DataFrame,
                         eval_fn: EvalFnType,
                         predict_oof: bool = False,
                         return_eval_logs_on_train: bool = False,
-                        verbose: bool = False) -> LogType:
+                        verbose: bool = False,
+                        apply_shap: bool = False) -> LogType:
     """
     Perform an iteration of train test split, training and evaluation.
 
@@ -55,6 +56,9 @@ def validator_iteration(data: pd.DataFrame,
     return_eval_logs_on_train : bool
         Whether to apply eval_fn to the training set and return the resulting logs in the train log
 
+    apply_shap: bool
+        Whether to return the shap values of the out of fold predictions
+
     Returns
     ----------
     A log-like dictionary evaluations.
@@ -76,7 +80,10 @@ def validator_iteration(data: pd.DataFrame,
     if verbose:
         print(f"Running validation for {fold_num} fold.")
     for test_index in (tqdm(test_indexes) if verbose else test_indexes):
-        test_predictions = predict_fn(data.iloc[test_index])
+        if apply_shap and len(test_index) > 0:
+            test_predictions = predict_fn(data.iloc[test_index], apply_shap=apply_shap)
+        else:
+            test_predictions = predict_fn(data.iloc[test_index])
         eval_results.append(eval_fn(test_predictions))
         if predict_oof:
             oof_predictions.append(test_predictions)
@@ -98,7 +105,8 @@ def validator(train_data: pd.DataFrame,
               predict_oof: bool = False,
               return_eval_logs_on_train: bool = False,
               return_all_train_logs: bool = False,
-              verbose: bool = False) -> ValidatorReturnType:
+              verbose: bool = False,
+              apply_shap: bool = False) -> ValidatorReturnType:
     """
     Splits the training data into folds given by the split function and
     performs a train-evaluation sequence on each fold by calling
@@ -145,6 +153,9 @@ def validator(train_data: pd.DataFrame,
     verbose: bool
         Whether to show more information about the cross validation or not
 
+    apply_shap: bool
+        Whether to return the shap values of the out of fold predictions
+
     Returns
     ----------
     A list of log-like dictionary evaluations.
@@ -158,7 +169,7 @@ def validator(train_data: pd.DataFrame,
     def fold_iter(fold: Tuple[int, Tuple[pd.Index, pd.Index]]) -> LogType:
         (fold_num, (train_index, test_indexes)) = fold
         return validator_iteration(train_data, train_index, test_indexes, fold_num,
-                                   train_fn, eval_fn, predict_oof, return_eval_logs_on_train, verbose)
+                                   train_fn, eval_fn, predict_oof, return_eval_logs_on_train, verbose, apply_shap)
 
     zipped_logs = pipe(folds,
                        enumerate,
@@ -197,10 +208,11 @@ def parallel_validator_iteration(train_data: pd.DataFrame,
                                  eval_fn: EvalFnType,
                                  predict_oof: bool,
                                  return_eval_logs_on_train: bool = False,
-                                 verbose: bool = False) -> LogType:
+                                 verbose: bool = False,
+                                 apply_shap: bool = False) -> LogType:
     (fold_num, (train_index, test_indexes)) = fold
     return validator_iteration(train_data, train_index, test_indexes, fold_num, train_fn, eval_fn, predict_oof,
-                               return_eval_logs_on_train, verbose)
+                               return_eval_logs_on_train, verbose, apply_shap)
 
 
 @curry
@@ -211,7 +223,8 @@ def parallel_validator(train_data: pd.DataFrame,
                        n_jobs: int = 1,
                        predict_oof: bool = False,
                        return_eval_logs_on_train: bool = False,
-                       verbose: bool = False) -> ValidatorReturnType:
+                       verbose: bool = False,
+                       apply_shap: bool = False) -> ValidatorReturnType:
     """
     Splits the training data into folds given by the split function and
     performs a train-evaluation sequence on each fold. Tries to run each
@@ -249,6 +262,9 @@ def parallel_validator(train_data: pd.DataFrame,
     verbose: bool
         Whether to show more information about the cross validation or not
 
+    apply_shap: bool
+        Whether to return the shap values of the out of fold predictions
+
     Returns
     ----------
     A list log-like dictionary evaluations.
@@ -257,7 +273,7 @@ def parallel_validator(train_data: pd.DataFrame,
 
     result = Parallel(n_jobs=n_jobs, backend="threading")(
         delayed(parallel_validator_iteration)(train_data, x, train_fn, eval_fn, predict_oof, return_eval_logs_on_train,
-                                              verbose)
+                                              verbose, apply_shap)
         for x in enumerate(folds))
     gc.collect()
 
